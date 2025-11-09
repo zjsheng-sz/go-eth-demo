@@ -6,43 +6,54 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"strings"
 
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/local/go-eth-demo/simpleCounter"
 )
 
+const account1 = "0x744d6ce80290a885479f031b640868b00dcb6b50"
+const account2 = "0x6eb4ac69f05fef3d1507fd60349ecae33505cbf1"
+const alchemyKey = "mBW0uE5HiVGi8W0Uk_0O2"
+const alchemyurl = "https://eth-sepolia.g.alchemy.com/v2/"
+const myTokeAddress = "0x9C4CfecD4Ef00822F15aA31dA828E7B3eea96851"
+const privateKeyStr = "61e37a97c81bd9de585b6f74d9e00a9d7050c34f628aa0246c7867dcc795f905"
+
 func main() {
-	// 连接到以太坊节点（可以使用 Infura 或本地节点）
-	client, err := ethclient.Dial("https://eth-sepolia.g.alchemy.com/v2/mBW0uE5HiVGi8W0Uk_0O2")
+
+	// 编写 Go 代码，使用 ethclient 连接到 Sepolia 测试网络。
+	client, err := ethclient.Dial(alchemyurl + alchemyKey)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer client.Close()
 
-	queryBlockHeader(client)
+	// //查询区块
+	// queryBlockInfo(client)
 
-}
+	// // // 发送交易
+	// amount := big.NewInt(1e17)
+	// sendTransaction(client, privateKeyStr, account2, amount)
 
-func queryBlockHeader(client *ethclient.Client) {
-	ctx := context.Background()
-	header, err := client.HeaderByNumber(ctx, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// // 查询交易
+	// queryTxInfo(client, "0xd4f51ee77b9dc2824dc58c7dd94f78031301c551a0bafaf321b18e98debf25a7")
 
-	fmt.Println("成功连接到以太坊网络")
-	fmt.Printf("最新区块号: %s\n", header.Number.String())
+	// 部署
+	// deployContract(client, privateKeyStr)
 
-	fmt.Println(header.Number.String())
+	// 加载
+	// loadContract(client, "0x7133CD329D9930A1D227498CC2FEBf14a80A0203")
+
+	// 使用合约
+	useContract(client, "0x7133CD329D9930A1D227498CC2FEBf14a80A0203", privateKeyStr)
 }
 
 // 查询区块信息
-func queryBlockInfo(client *ethclient.Client) {
+func queryBlockInfo(client *ethclient.Client) *types.Block {
 	ctx := context.Background()
 
 	// 获取最新区块号
@@ -61,135 +72,23 @@ func queryBlockInfo(client *ethclient.Client) {
 	fmt.Printf("区块哈希: %s\n", block.Hash().Hex())
 	fmt.Printf("区块时间: %d\n", block.Time())
 	fmt.Printf("交易数量: %d\n", len(block.Transactions()))
+	return block
 }
 
-// 查询账户余额
-func queryBalance(client *ethclient.Client, address string) {
+func sendTransaction(client *ethclient.Client, privateKeyStr, toAddress string, amount *big.Int) string {
 	ctx := context.Background()
 
-	// 将地址字符串转换为 common.Address 类型
-	account := common.HexToAddress(address)
-
-	// 查询余额（返回的是 Wei 单位）
-	balance, err := client.BalanceAt(ctx, account, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// 将 Wei 转换为 ETH
-	ethBalance := new(big.Float).Quo(new(big.Float).SetInt(balance), big.NewFloat(1e18))
-	fmt.Printf("地址 %s 的余额: %s ETH\n", address, ethBalance.String())
-}
-
-// 查询交易信息
-func queryTransaction(client *ethclient.Client, txHash string) {
-	ctx := context.Background()
-
-	hash := common.HexToHash(txHash)
-	tx, isPending, err := client.TransactionByHash(ctx, hash)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if isPending {
-		fmt.Println("交易仍在等待确认")
-	} else {
-		fmt.Println("交易已确认")
-	}
-
-	// 获取发送方地址（从交易签名恢复）
-	chainID, err := client.NetworkID(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	from, err := types.Sender(types.NewEIP155Signer(chainID), tx)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var to string
-	if tx.To() != nil {
-		to = tx.To().Hex()
-	} else {
-		to = "contract creation"
-	}
-
-	var gasPrice string
-	if tx.GasPrice() != nil {
-		gasPrice = tx.GasPrice().String()
-	} else {
-		gasPrice = "nil"
-	}
-
-	fmt.Printf("发送方: %s\n", from.Hex())
-	fmt.Printf("接收方: %s\n", to)
-	fmt.Printf("金额: %s Wei\n", tx.Value().String())
-	fmt.Printf("Gas 价格: %s Wei\n", gasPrice)
-}
-
-// 5. 监听新区块
-func watchNewBlocks(client *ethclient.Client) {
-	headers := make(chan *types.Header)
-	sub, err := client.SubscribeNewHead(context.Background(), headers)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	for {
-		select {
-		case err := <-sub.Err():
-			log.Fatal(err)
-		case header := <-headers:
-			fmt.Printf("新区块: %s, 时间: %d\n",
-				header.Number.String(), header.Time)
-		}
-	}
-}
-
-// ERC20 标准 ABI 的部分定义
-const erc20ABI = `[{"constant":true,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]`
-
-// 查询 ERC-20 代币余额
-func queryTokenBalance(client *ethclient.Client, tokenAddress string, walletAddress string) {
-	ctx := context.Background()
-
-	// 解析合约 ABI
-	contractAbi, err := abi.JSON(strings.NewReader(erc20ABI))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// 编码 balanceOf 函数调用
-	data, err := contractAbi.Pack("balanceOf", common.HexToAddress(walletAddress))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// 调用合约
-	tokenAddr := common.HexToAddress(tokenAddress)
-	msg := ethereum.CallMsg{
-		To:   &tokenAddr,
-		Data: data,
-	}
-
-	result, err := client.CallContract(ctx, msg, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// 解码结果
-	var balance *big.Int
-	err = contractAbi.UnpackIntoInterface(&balance, "balanceOf", result)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Printf("代币余额: %s\n", balance.String())
-}
-
-func sendTransaction(client *ethclient.Client, privateKeyStr, toAddress string, amount *big.Int) {
-	ctx := context.Background()
+	// hex 转 私钥
+	// 私钥 获取 公钥
+	// 公钥 转 ecdsa公钥
+	// ecdsa 获取 地址
+	// pendingNonce nonce
+	// gasprice
+	// to Address
+	// chainid
+	// 生成交易
+	// 对交易签名
+	// 发送交易
 
 	// 解析私钥
 	privateKey, err := crypto.HexToECDSA(privateKeyStr)
@@ -205,6 +104,9 @@ func sendTransaction(client *ethclient.Client, privateKeyStr, toAddress string, 
 	}
 
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+	fmt.Println("fromAddress", fromAddress)
+
+	client.PendingNonceAt(ctx, fromAddress)
 
 	// 获取 nonce
 	nonce, err := client.PendingNonceAt(ctx, fromAddress)
@@ -240,5 +142,241 @@ func sendTransaction(client *ethclient.Client, privateKeyStr, toAddress string, 
 		log.Fatal(err)
 	}
 
-	fmt.Printf("交易已发送: %s\n", signedTx.Hash().Hex())
+	txHex := signedTx.Hash().Hex()
+
+	fmt.Printf("交易已发送: %s\n", txHex)
+
+	return txHex
+
+}
+
+func queryTxInfo(client *ethclient.Client, txStr string) {
+
+	ctx := context.Background()
+
+	tx, _, err := client.TransactionByHash(ctx, common.HexToHash(txStr))
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("tx.Hash().Hex(): ", tx.Hash().Hex())
+	fmt.Println("tx.Value().String(): ", tx.Value().String())
+	fmt.Println("tx.Gas(): ", tx.Gas())
+	fmt.Println("tx.GasPrice().Uint64(): ", tx.GasPrice().Uint64())
+	fmt.Println("tx.Nonce(): ", tx.Nonce())
+	fmt.Println("tx.Data(): ", tx.Data())
+	fmt.Println("tx.To().Hex():", tx.To().Hex())
+
+	chainId, err := client.NetworkID(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	sender, err := types.Sender(types.NewEIP155Signer(chainId), tx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("sender: ", sender.Hex())
+
+}
+
+// 部署
+
+func deployContract(client *ethclient.Client, privateKeyStr string) *simpleCounter.Counter {
+
+	ctx := context.Background()
+
+	privateKey, err := crypto.HexToECDSA(privateKeyStr)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	publicKey := privateKey.Public()
+
+	publicKeyECDSA := publicKey.(*ecdsa.PublicKey)
+
+	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+
+	nonce, err := client.PendingNonceAt(ctx, fromAddress)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	gasPrice, err := client.SuggestGasPrice(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	chainId, err := client.NetworkID(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainId)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	auth.Nonce = big.NewInt(int64(nonce))
+	auth.Value = big.NewInt(int64(0))
+	auth.GasPrice = gasPrice
+	// auth.GasLimit = uint64(300000)
+
+	// 动态估算 Gas Limit
+	estimatedGas, err := client.EstimateGas(context.Background(), ethereum.CallMsg{
+		From:     auth.From,
+		To:       nil, // 合约部署时 To 为 nil
+		GasPrice: gasPrice,
+		Value:    big.NewInt(0),
+		Data:     common.FromHex(simpleCounter.CounterBin), // 合约的字节码
+	})
+	if err != nil {
+		log.Fatal("估算Gas失败:", err)
+	}
+
+	// 在估算值基础上增加安全边际（10-20%）
+	safetyMargin := uint64(float64(estimatedGas) * 1.2)
+	auth.GasLimit = safetyMargin
+
+	fmt.Printf("估算Gas: %d, 实际设置: %d\n", estimatedGas, auth.GasLimit)
+
+	address, tx, instance, err := simpleCounter.DeployCounter(auth, client)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("合约部署成功")
+	fmt.Println("合约地址:", address.Hex())   //0x7133CD329D9930A1D227498CC2FEBf14a80A0203
+	fmt.Println("交易哈希:", tx.Hash().Hex()) //0x3ba699dfb405a59f79cd235189cd85bf6d875d21b24743e11df74d471b240215
+
+	// 等待交易确认
+	fmt.Println("等待交易确认...")
+	receipt, err := bind.WaitMined(ctx, client, tx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if receipt.Status != 1 {
+		log.Fatal("合约部署失败")
+	}
+
+	fmt.Println("合约部署成功，已确认")
+	return instance
+}
+
+// 加载
+func loadContract(client *ethclient.Client, contractAddressStr string) *simpleCounter.Counter {
+
+	contractAddress := common.HexToAddress(contractAddressStr)
+
+	simpleCounter, err := simpleCounter.NewCounter(contractAddress, client)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("合约加载成功:", contractAddressStr)
+
+	return simpleCounter
+
+}
+
+func useContract(client *ethclient.Client, contractAddressStr, privateKeyStr string) {
+
+	simpleCounter := loadContract(client, contractAddressStr)
+
+	// 读取合约数据
+	count, err := simpleCounter.GetCount(&bind.CallOpts{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("当前计数值:", count.Uint64())
+
+	// 修改合约数据
+	ctx := context.Background()
+
+	privateKey, err := crypto.HexToECDSA(privateKeyStr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		log.Fatal("cannot assert type: publicKey is not of type *ecdsa.PublicKey")
+	}
+
+	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+
+	nonce, err := client.PendingNonceAt(ctx, fromAddress)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	gasPrice, err := client.SuggestGasPrice(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	chainId, err := client.NetworkID(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainId)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	auth.Nonce = big.NewInt(int64(nonce))
+	auth.Value = big.NewInt(0)
+	auth.GasPrice = gasPrice
+	auth.GasLimit = getGasLimitByOperation("simple_contract_call")
+
+	tx, err := simpleCounter.Increment(auth)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("计数值已增加，交易哈希:", tx.Hash().Hex())
+
+	// 等待交易确认
+	fmt.Println("等待交易确认...")
+	receipt, err := bind.WaitMined(ctx, client, tx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if receipt.Status != 1 {
+		log.Fatal("交易执行失败")
+	}
+
+	fmt.Println("交易已确认")
+
+	// 读取更新后的合约数据
+	updatedCount, err := simpleCounter.GetCount(&bind.CallOpts{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("更新后的计数值:", updatedCount.Uint64())
+}
+
+func getGasLimitByOperation(operationType string) uint64 {
+	switch operationType {
+	case "contract_deploy":
+		return 2000000 // 合约部署：通常需要较多 Gas
+	case "simple_transfer":
+		return 21000 // 简单转账：固定 21000
+	case "token_transfer":
+		return 65000 // ERC20 代币转账：约 45000-65000
+	case "simple_contract_call":
+		return 50000 // 简单合约调用
+	case "complex_contract_call":
+		return 200000 // 复杂合约调用
+	case "swap_operation":
+		return 300000 // DEX 兑换操作
+	default:
+		return 300000 // 默认值
+	}
 }
