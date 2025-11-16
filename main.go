@@ -20,6 +20,7 @@ const account1 = "0x744d6ce80290a885479f031b640868b00dcb6b50"
 const account2 = "0x6eb4ac69f05fef3d1507fd60349ecae33505cbf1"
 const alchemyKey = "mBW0uE5HiVGi8W0Uk_0O2"
 const alchemyurl = "https://eth-sepolia.g.alchemy.com/v2/"
+const wsAlchemyurl = "wss://eth-sepolia.g.alchemy.com/v2/"
 const myTokeAddress = "0x9C4CfecD4Ef00822F15aA31dA828E7B3eea96851"
 const privateKeyStr = "61e37a97c81bd9de585b6f74d9e00a9d7050c34f628aa0246c7867dcc795f905"
 
@@ -50,6 +51,15 @@ func main() {
 
 	// 使用合约
 	useContract(client, "0x7133CD329D9930A1D227498CC2FEBf14a80A0203", privateKeyStr)
+
+	// 订阅区块头
+	// subscribeBlockHeaders()
+
+	//查询事件
+	// querylogs(client, "0x7133CD329D9930A1D227498CC2FEBf14a80A0203")
+
+	//订阅事件
+	// subscribeLogsRealtime("0x7133CD329D9930A1D227498CC2FEBf14a80A0203", nil)
 }
 
 // 查询区块信息
@@ -378,5 +388,126 @@ func getGasLimitByOperation(operationType string) uint64 {
 		return 300000 // DEX 兑换操作
 	default:
 		return 300000 // 默认值
+	}
+}
+
+// 订阅区块头
+func subscribeBlockHeaders() {
+	client, err := ethclient.Dial(wsAlchemyurl + alchemyKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer client.Close()
+
+	headers := make(chan *types.Header)
+
+	sub, err := client.SubscribeNewHead(context.Background(), headers)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("订阅区块头成功，等待新块...")
+
+	for {
+		select {
+		case err := <-sub.Err():
+			log.Fatal(err)
+		case header := <-headers:
+
+			fmt.Println(header.Hash().Hex())
+			block, err := client.BlockByHash(context.Background(), header.Hash())
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			fmt.Println(block.Hash().Hex())
+			fmt.Println(block.Number().Uint64())
+			fmt.Println(block.Time())
+			fmt.Println(block.Nonce())
+			fmt.Println(len(block.Transactions()))
+		}
+	}
+}
+
+// 查询交易
+func querylogs(client *ethclient.Client, contractAddressStr string) {
+	contractAddress := common.HexToAddress(contractAddressStr)
+
+	query := ethereum.FilterQuery{
+		Addresses: []common.Address{contractAddress},
+	}
+
+	header, err := client.HeaderByNumber(context.Background(), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	query.FromBlock = header.Number
+	query.ToBlock = header.Number
+
+	logs, err := client.FilterLogs(context.Background(), query)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, vLog := range logs {
+		fmt.Println("Log Block Number: ", vLog.BlockNumber)
+		fmt.Println("Log Index: ", vLog.Index)
+		fmt.Println("Log Tx Hash: ", vLog.TxHash.Hex())
+		fmt.Println("Log Address: ", vLog.Address.Hex())
+		fmt.Println("Log Data: ", vLog.Data)
+		fmt.Println("Log Topics: ", vLog.Topics)
+	}
+}
+
+// 使用WebSocket实时订阅，不受批量限制
+func subscribeLogsRealtime(contractAddressStr string, topics [][]common.Hash) {
+
+	contractAddress := common.HexToAddress(contractAddressStr)
+
+	client, err := ethclient.Dial(wsAlchemyurl + alchemyKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer client.Close()
+
+	query := ethereum.FilterQuery{
+		Addresses: []common.Address{contractAddress},
+		Topics:    topics,
+	}
+
+	header, err := client.HeaderByNumber(context.Background(), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	query.FromBlock = header.Number
+	query.ToBlock = header.Number
+
+	logs := make(chan types.Log)
+	sub, err := client.SubscribeFilterLogs(context.Background(), query, logs)
+	if err != nil {
+		log.Fatal("订阅失败，可能需要WebSocket连接: ", err)
+	}
+
+	for {
+		select {
+		case err := <-sub.Err():
+			log.Printf("订阅错误: %v", err)
+		case log := <-logs:
+			fmt.Printf("新区块 %d: 交易哈希 %s\n", log.BlockNumber, log.TxHash.Hex())
+
+			// 创建合约过滤器实例
+			filterer, err := simpleCounter.NewCounterFilterer(contractAddress, client)
+			if err != nil {
+			}
+
+			// 解析日志
+			counterIncrementedEvents, err := filterer.ParseCountChanged(log)
+			if err != nil {
+			}
+
+			fmt.Printf("CounterIncremented 事件 - 新计数值: %d\n", counterIncrementedEvents.NewValue.Uint64())
+
+			// 处理日志...
+		}
 	}
 }
